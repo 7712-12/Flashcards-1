@@ -1,0 +1,225 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vocabulary Flashcards Recall</title>
+    <style>
+        /* Tailwind CSS output (minified for production) */
+        .bg-gray-100{background-color:#f3f4f6}.bg-white{background-color:#fff}.bg-blue-500{background-color:#3b82f6}.bg-blue-600{background-color:#2563eb}.bg-green-500{background-color:#22c55e}.bg-green-600{background-color:#16a34a}.bg-gray-400{background-color:#9ca3af}.text-white{color:#fff}.text-gray-600{color:#4b5563}.text-2xl{font-size:1.5rem;line-height:2rem}.font-bold{font-weight:700}.p-4{padding:1rem}.px-4{padding-left:1rem;padding-right:1rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.mb-4{margin-bottom:1rem}.mb-6{margin-bottom:1.5rem}.mt-4{margin-top:1rem}.ml-2{margin-left:.5rem}.flex{display:flex}.flex-col{flex-direction:column}.space-x-4>:not([hidden])~:not([hidden]){--tw-space-x-reverse:0;margin-right:calc(1rem*var(--tw-space-x-reverse));margin-left:calc(1rem*(1 - var(--tw-space-x-reverse)))}.items-center{align-items:center}.justify-center{justify-content:center}.min-h-screen{min-height:100vh}.max-w-500{max-width:500px}.rounded{border-radius:.25rem}.shadow-lg{box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1)}.hover\:bg-blue-600:hover{background-color:#2563eb}.hover\:bg-green-600:hover{background-color:#16a34a}.disabled\:bg-gray-400:disabled{background-color:#9ca3af}
+
+        /* Custom styles for flashcard */
+        .flashcard {
+            perspective: 1000px;
+            width: 100%;
+            max-width: 500px;
+            height: 300px;
+            position: relative;
+        }
+        .flashcard-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+        .flashcard-front, .flashcard-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .flashcard-front {
+            background-color: #3b82f6;
+            color: white;
+            font-size: 1.2rem;
+            text-align: center;
+            padding: 1rem;
+        }
+        .flashcard-back {
+            background-color: #ffffff;
+            color: #1f2937;
+            transform: rotateY(180deg);
+            flex-direction: column;
+            padding: 1rem;
+            text-align: center;
+        }
+        .flipped .flashcard-inner {
+            transform: rotateY(180deg);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center min-h-screen p-4">
+    <h1 class="text-2xl font-bold mb-4">Vocabulary Flashcards Recall</h1>
+    <div class="mb-4">
+        <button id="mode-btn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Switch to Random Mode</button>
+        <span id="mode-display" class="ml-2 text-gray-600">Current: Sequential</span>
+    </div>
+    <div id="flashcard-container" class="flashcard mb-6">
+        <div class="flashcard-inner">
+            <div class="flashcard-front"></div>
+            <div class="flashcard-back"></div>
+        </div>
+    </div>
+    <div class="flex space-x-4">
+        <button id="prev-btn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-400" disabled>Previous</button>
+        <button id="next-btn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Next</button>
+    </div>
+    <p class="mt-4 text-gray-600">Card <span id="current-card">1</span> of <span id="total-cards"></span></p>
+
+    <script>
+        const originalFlashcards = [
+            { expression: "Companion", pos: "Noun", english: "Someone you spend a lot of time with, especially a friend." },
+            { expression: "Support", pos: "Noun", english: "(1) Agreement with and encouragement for an idea, group, or person. (2) Emotional or practical help." },
+            { expression: "Support", pos: "Verb", english: "(1) To agree with and give encouragement to someone or something because you want them to succeed. (2) To help someone emotionally or in a practical way." },
+            { expression: "Supportive", pos: "Adjective", english: "Giving help or encouragement." },
+            { expression: "Comfort", pos: "Noun", english: "The state of feeling better after feeling sad or worried." },
+            { expression: "Comfort", pos: "Verb", english: "To make someone feel better when they are sad or worried." },
+            { expression: "Suffer", pos: "Verb", english: "To experience physical or mental pain." },
+            { expression: "Emotional", pos: "Adjective", english: "Relating to the emotions." },
+            { expression: "Emotion", pos: "Noun", english: "A strong feeling such as love or anger, or strong feelings in general." },
+            { expression: "Challenge", pos: "Noun", english: "Something that needs great mental or physical effort to be done successfully and tests a person's ability." },
+            { expression: "Challenging", pos: "Adjective", english: "Difficult in an interesting or enjoyable way." },
+            { expression: "Tackle", pos: "Verb", english: "To try to deal with something or someone." },
+            { expression: "Anxious", pos: "Adjective", english: "Worried and nervous." },
+            { expression: "Anxiety", pos: "Noun", english: "An uncomfortable feeling of nervousness or worry about something that is happening or might happen in the future." },
+            { expression: "Positive", pos: "Adjective", english: "Full of hope and confidence, or giving cause for hope and confidence." },
+            { expression: "Distressed", pos: "Adjective", english: "Upset or worried." },
+            { expression: "Suitable", pos: "Adjective", english: "Acceptable or right for someone or something." },
+            { expression: "Allergy", pos: "Noun", english: "A condition that makes a person become sick or develop skin or breathing problems because they have eaten certain foods or been near certain substances." },
+            { expression: "Allergic", pos: "Adjective", english: "Having an allergy." },
+            { expression: "Effectiveness", pos: "Noun", english: "How well a particular treatment or drug works when people are using it, as opposed to under controlled scientific conditions." },
+            { expression: "Effective", pos: "Adjective", english: "Successful or achieving the results that you want." },
+            { expression: "Effect", pos: "Noun", english: "The result of a particular influence." },
+            { expression: "Reduce", pos: "Verb", english: "To become or to make something become smaller in size, amount, degree, importance, etc." },
+            { expression: "Loneliness", pos: "Noun", english: "The state of being lonely." },
+            { expression: "Lonely", pos: "Adjective", english: "Unhappy because you are not with other people." },
+            { expression: "Boost", pos: "Verb", english: "To improve or increase something." },
+            { expression: "Mood", pos: "Noun", english: "The way you feel at a particular time." },
+            { expression: "Adopt", pos: "Verb", english: "To become the owner of (a pet, especially one from a shelter)." },
+            { expression: "Encouragement", pos: "Noun", english: "Words or behavior that give someone confidence to do something." },
+            { expression: "Encourage", pos: "Verb", english: "To make someone more likely to do something." },
+            { expression: "Complain", pos: "Verb", english: "To say that something is wrong or not satisfactory." },
+            { expression: "Ignore", pos: "Verb", english: "To intentionally not listen or give attention to." },
+            { expression: "Deserve", pos: "Verb", english: "To have earned or to be given something because of the way you have behaved or the qualities you have." },
+            { expression: "Fond of", pos: "Phrase", english: "To like someone or something very much; to like doing something." }
+        ];
+
+        let flashcards = [...originalFlashcards];
+        let currentIndex = 0;
+        let isRandomMode = false;
+        const flashcardContainer = document.getElementById('flashcard-container');
+        const flashcardInner = flashcardContainer.querySelector('.flashcard-inner');
+        const flashcardFront = flashcardContainer.querySelector('.flashcard-front');
+        const flashcardBack = flashcardContainer.querySelector('.flashcard-back');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const modeBtn = document.getElementById('mode-btn');
+        const modeDisplay = document.getElementById('mode-display');
+        const currentCardDisplay = document.getElementById('current-card');
+        const totalCardsDisplay = document.getElementById('total-cards');
+
+        totalCardsDisplay.textContent = flashcards.length;
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function updateFlashcard() {
+            const card = flashcards[currentIndex];
+            flashcardFront.textContent = card.english;
+            flashcardBack.innerHTML = `
+                <p><strong>Expression:</strong> ${card.expression}</p>
+                <p><strong>Part of Speech:</strong> ${card.pos}</p>
+            `;
+            currentCardDisplay.textContent = currentIndex + 1;
+            prevBtn.disabled = currentIndex === 0;
+            nextBtn.disabled = currentIndex === flashcards.length - 1;
+            flashcardContainer.classList.remove('flipped');
+        }
+
+        function toggleMode() {
+            isRandomMode = !isRandomMode;
+            modeBtn.textContent = isRandomMode ? "Switch to Sequential Mode" : "Switch to Random Mode";
+            modeDisplay.textContent = isRandomMode ? "Current: Random" : "Current: Sequential";
+            currentIndex = 0;
+            if (isRandomMode) {
+                flashcards = shuffleArray([...originalFlashcards]);
+            } else {
+                flashcards = [...originalFlashcards];
+            }
+            updateFlashcard();
+        }
+
+        flashcardContainer.addEventListener('click', () => {
+            flashcardContainer.classList.toggle('flipped');
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex--;
+                updateFlashcard();
+            }
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentIndex < flashcards.length - 1) {
+                currentIndex++;
+                updateFlashcard();
+            }
+        });
+
+        modeBtn.addEventListener('click', toggleMode);
+
+        updateFlashcard();
+    </script>
+</body>
+</html>
